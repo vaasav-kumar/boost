@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <script src="/assets/js/index.js" type="text/javascript"></script>
+    <script src="https://www.gstatic.com/firebasejs/7.9.1/firebase.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/7.9.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/7.9.1/firebase-database.js"></script>
+    <script src="/assets/js/jquery-3.4.1.min.js" type="text/javascript"></script>
+    <title>Boost Game</title>
+  </head>
+
+  <body>
+    <div id="rooms">
+      <button onclick="createRoom()">Create Room</button>
+      <button onclick="joinRoom()">Join Room</button>
+    </div>
+
+    <div id="game">
+      <div id="winnerPopup" class="popup">
+        <div>
+          <img src="award.jpg" />
+          <h6>Winner</h6>
+          <h5 id="winner"></h5>
+          <button onclick="closeWinner()">Close</button>
+        </div>
+      </div>
+  
+      <div id="chatPopup" class="popup">
+        <div>
+          <div class="input">
+            <input type="text" id="message">
+            <button onclick="sendMessage()">Send</button>
+          </div>
+          <div class="chats"></div>
+          <button onclick="closeChat()" class="close">Close</button>
+        </div>
+      </div>
+  
+      <div id="chatBot" onclick="openChat()">Chat</div>
+  
+      <div class="players" id="players"></div>
+  
+      <div id="roomDetails">
+        <div id="showRoomCode">
+          <label>Room Code</label>
+          <p></p>
+        </div>
+        <div id="showPlayerName">
+          <label>Player Name</label>
+          <p></p>
+        </div>
+      </div>
+
+      <div id="playerInput">
+        <div id="getRoomCode">
+          <label>Room Code</label>
+          <input type="text" />
+        </div>
+        <div>
+          <label>Player Name</label>
+          <input type="text" id="playerName" />
+        </div>
+        
+        <button onclick="updateUser()">Submit</button>
+      </div>
+  
+      <button id="gameStart" onclick="startGame()">Start Game</button>
+      
+      <div id="board"></div>
+    
+      <button id="reset" onclick="reset()">Exit</button>
+    </div>
+  </body>
+</html>
+
+<script>
+  let firebaseConfig1 = {
+    apiKey: "AIzaSyCaJnQ7Hk-XHaTjVEwtg2uRtrQTTDhpSPg",
+    authDomain: "multiplayer-b4ff7.firebaseapp.com",
+    databaseURL: "https://multiplayer-b4ff7.firebaseio.com",
+    projectId: "multiplayer-b4ff7",
+    storageBucket: "multiplayer-b4ff7.appspot.com",
+    messagingSenderId: "1057416037839"
+  };
+
+  firebase.initializeApp(firebaseConfig1);
+  let database = firebase.database()
+
+  let playerName = localStorage.getItem('player_name')
+  let playersList = []
+  let vip = false
+  let gameIsOn = false
+  let allCards = {}
+  let myCards = []
+  let roomCode = localStorage.getItem('room_code')
+  let activePlayer = null
+
+  showWinner = (data) => {
+    $('#winnerPopup').css('display', 'flex')
+    $('#winner').text(data.val().player)
+  }
+  closeWinner = () => {
+    $('#winnerPopup').css('display', 'none')
+  }
+
+  openChat = () => {
+    $('#chatPopup').css('display', 'flex')
+  }
+  closeChat = () => {
+    $('#chatPopup').css('display', 'none')
+  }
+
+  sendMessage = () => {
+    let message = $('#message').val()
+    if (message) {
+      let messageObj = {
+        player: playerName,
+        message: message
+      }
+      api('chat.json', 'POST', `${JSON.stringify(messageObj)}`)
+      $('#message').val('')
+    }
+  }
+  showMessages = (data) => {
+    let values = data.val()
+    $('#chatPopup .chats').append(`<li><b>${values.player} :</b><p>${values.message}</p></li>`)
+  }
+
+  addPlayers = (data) => {
+    if (!gameIsOn) {
+      let name = data.val().name
+      playersList.push(name)
+      $('#players').append(`<li>${name}</li>`)
+      vip = playersList[0] === playerName
+
+      if (vip) {
+        $('#gameStart').css('display', 'flex')
+      } else {
+        $('#gameStart').css('display', 'none')
+      }
+    }
+  }
+
+  updateUser = () => {
+    playerName = $('#playerName').val()
+    $('#playerInput').css('display', 'none')
+
+    if (!roomCode) {
+      roomCode = $('#getRoomCode input').val().trim().toUpperCase()
+      localStorage.setItem('room_code', roomCode)
+      $('#showRoomCode, #showPlayerName').css('display', 'flex')
+      $('#showRoomCode p').text(roomCode)
+      addRef()
+    } else {
+      $('#showRoomCode, #showPlayerName').css('display', 'flex')
+    }
+    $('#showPlayerName p').text(playerName)
+    localStorage.setItem('player_name', playerName)
+    api('players.json', 'POST', `{ "name": "${playerName}" }`)
+  }
+
+  activePlayer = (data) => {
+    if (data.val()) {
+      let index = Object.keys(data.val())[0]
+      activePlayer = data.val()[index].player
+      $('#players li').removeClass('active')
+      let activeIndex = playersList.indexOf(activePlayer)
+      $('#players li').eq(activeIndex).addClass('active')
+
+      if (activePlayer === playerName) {
+        $('#board button').css('display', 'block')
+      } else {
+        $('#board button').css('display', 'none')
+      }
+    }
+  }
+
+  passCard = (passIndex) => {
+    let playerIndex = playersList.indexOf(playerName)
+    let nextPlayer = ((playerIndex += 1) % (playersList.length))
+    let activeObj = {
+      hash: {
+        player: playersList[nextPlayer]
+      }
+    }
+    api('active_player.json', 'PUT', `${JSON.stringify(activeObj)}`)
+    let backupAllCards = JSON.stringify(allCards)
+    backupAllCards = JSON.parse(backupAllCards)
+    let nextPlayerName = playersList[nextPlayer]
+    backupAllCards[nextPlayerName].push(myCards[passIndex])
+    backupAllCards[playerName].splice(passIndex, 1)
+    let cardObj = {
+      hash: {
+        cards: backupAllCards
+      }
+    }
+    api('cards.json', 'PUT', `${JSON.stringify(cardObj)}`)
+  }
+
+  shuffleCards = () => {
+    let players = Object.assign([], playersList)
+    return players.sort(() => Math.random() - 0.9)
+  }
+
+  getMyCards = (data) => {
+    if (data.val()) {
+      let index = Object.keys(data.val())[0]
+      allCards = data.val()[index].cards
+      if (playerName) {
+        myCards = allCards[playerName]
+
+        $('#board').empty()
+        myCards.forEach((card, index) => {
+          $('#board').append(`<div><li>${card}</li><button onclick="passCard(${index})">Pass</button></div>`)
+        })
+
+        if (myCards.length === 3 && myCards.every(card => card === myCards[0])) {
+          api('winner.json', 'POST', `{ "player" : "${playerName}" }`)
+        }
+
+        if (activePlayer === playerName) {
+          $('#board button').css('display', 'block')
+        } else {
+          $('#board button').css('display', 'none')
+        }
+      }
+    }
+  }
+
+  startGame = () => {
+    $('#gameStart').css('display', 'none')
+    api('start_game.json', 'POST', `{ "vip": "${playerName}" }`)
+    let randomPlayer = Math.floor(Math.random() * playersList.length)
+    api('active_player.json', 'POST', `{ "player": "${playersList[randomPlayer]}" }`)
+    let shuffle = shuffleCards()
+    shuffle = shuffle.concat(shuffle).concat(shuffle)
+    let shuffleObj = {}
+    playersList.forEach((player, index) => {
+      shuffleObj[player] = shuffle.slice(index * 3, (index * 3) + 3)
+    })
+    api('cards.json', 'POST', `{ "cards": ${JSON.stringify(shuffleObj)} }`)
+  }
+
+  gameStarted = (data) => {
+    gameIsOn = true
+    $('#board').css('display', 'flex')
+  }
+
+  addRef = () => {
+    let playersRef = database.ref(`${roomCode}/players`)
+    playersRef.on('child_added', addPlayers)
+
+    let cardsRef = database.ref(`${roomCode}/cards`)
+    cardsRef.on('value', getMyCards)
+
+    let gameRef = database.ref(`${roomCode}/start_game`)
+    gameRef.on('child_added', gameStarted)
+
+    let activeRef = database.ref(`${roomCode}/active_player`)
+    activeRef.on('value', activePlayer)
+
+    let winnerRef = database.ref(`${roomCode}/winner`)
+    winnerRef.on('child_added', showWinner)
+
+    let chatRef = database.ref(`${roomCode}/chat`)
+    chatRef.on('child_added', showMessages)
+  }
+
+  checkRoom = () => {
+    if (roomCode) {
+      $('#rooms').css('display', 'none')
+      $('#game').css('display', 'block')
+      $('#showRoomCode').css('display', 'flex')
+      $('#getRoomCode').css('display', 'none')
+      $('#showRoomCode p').text(roomCode)
+      addRef()
+    } else {
+      $('#rooms').css('display', 'flex')
+      $('#game').css('display', 'none')
+    }
+
+    if (playerName) {
+      $('#playerInput').css('display', 'none')
+      $('#showPlayerName p').text(playerName)
+      $('#showPlayerName').css('display', 'flex')
+    }
+  }
+  checkRoom()
+
+  createRoom = () => {
+    $('#showPlayerName').css('display', 'none')
+    generateRoomCode()
+    checkRoom()
+  }
+  joinRoom = () => {
+    $('#rooms').css('display', 'none')
+    $('#game').css('display', 'block')
+    $('#getRoomCode, #playerInput').css('display', 'flex')
+    $('#showRoomCode, #showPlayerName').css('display', 'none')
+  }
+  
+  generateRoomCode = () => {
+    const char = 'abcdefghijklmnopqrstuvwxyz'
+    roomCode = ''
+    for (let i = 0; i < 4; i++) {
+      const value = Math.floor(Math.random() * char.length)
+      roomCode += char[value].toUpperCase()
+    }
+    localStorage.setItem('room_code', roomCode)
+  }
+
+  api = (url, type, data) => {
+    $.ajax({
+      url: `https://multiplayer-b4ff7.firebaseio.com/${roomCode}/` + url,
+      type: type,
+      data: data
+    })
+  }
+
+  reset = () => {
+    localStorage.removeItem('player_name')
+    localStorage.removeItem('room_code')
+    roomCode = null
+    checkRoom()
+    $('#showRoomCode, #showPlayerName').css('display', 'none')
+    playersList = []
+    vip = false
+    gameIsOn = false
+    allCards = {}
+    myCards = []
+    playerName = null
+    activePlayer = null
+    location.href = '/game'
+  }
+</script>
+
+<style>
+input {
+  border: 1px solid #c1c3c3;
+  border-radius: 5px;
+  padding: 6px 10px;
+}
+button {
+  cursor: pointer;
+}
+
+#rooms {
+  display: flex;
+  margin: 10%;
+  padding: 20px;
+  justify-content: space-evenly;
+  flex-wrap: wrap;
+}
+#rooms button {
+  padding: 20px;
+  border-radius: 25px;
+  color: #ffffff;
+  font-size: 25px;
+  flex: 1;
+  max-width: 300px;
+  margin: 20px 10px;
+  min-width: 200px;
+  font-weight: 500;
+}
+#rooms button:nth-child(1) {
+  background: linear-gradient(120deg, #c4c2c2, #65eb65);
+}
+#rooms button:nth-child(2) {
+  background: linear-gradient(120deg, #c4c2c2, #4f6cf0);
+}
+#getRoomCode, #showRoomCode, #showPlayerName {
+  display: none;
+}
+
+#game {
+  display: none;
+}
+
+.players {
+  padding: 15px;
+  margin: 15px 5%;
+  border-radius: 25px;
+  box-shadow: 0 0 15px 0 rgba(29,17,86,.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #000000;
+  flex-wrap: wrap;
+}
+.players li {
+  min-height: 100px;
+  min-width: 100px;
+  max-width: 300px;
+  flex: 1;
+  padding: 15px;
+  margin: 10px;
+  border-radius: 5px;
+  background: linear-gradient(45deg, #f0e6e5, #60c5ec);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+}
+.players li.active {
+  background: linear-gradient(45deg, #f0e6e5, #9ef01a) !important;
+}
+
+#playerInput, #roomDetails {
+  margin: 20px 5%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+}
+#roomDetails > div, #playerInput > div {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+#playerInput input, #playerInput label, #roomDetails * {
+  font-size: 18px;
+  margin: 5px;
+}
+#roomDetails p {
+  color: #88898a;
+  font-weight: 500;
+}
+#playerInput button {
+  background: #000000;
+  padding: 10px 15px;
+  min-width: 100px;
+  border-radius: 25px;
+  color: #ffffff;
+  margin: 20px;
+  font-size: 18px;
+}
+
+#gameStart {
+  background: #2fc8da;
+  padding: 10px 25px;
+  min-width: 100px;
+  border-radius: 25px;
+  color: #ffffff;
+  margin: 20px auto;
+  display: none;
+  font-size: 19px;
+}
+
+#board {
+  background: #000000;
+  border-radius: 25px;
+  padding: 20px;
+  margin: 10px 10%;
+  display: none;
+  justify-content: center;
+  align-items: center;
+  flex-direction: column;
+}
+#board > div {
+  margin: 10px;
+  display: flex;
+  justify-content: space-evenly;
+  align-items: center;
+  width: 100%;
+}
+#board li {
+  width: 60%;
+  color: #ffffff;
+  background: linear-gradient(45deg, #646363, #f01a5f);
+  display: flex;
+  justify-content: center;
+  font-size: 20px;
+  padding: 15px;
+  border-radius: 5px;
+}
+#board button {
+  background: #ffffff;
+  color: #000000;
+  font-size: 18px;
+  min-width: 10%;
+  border-radius: 25px;
+  padding: 10px;
+  display: none;
+}
+
+#reset {
+  color: #ffffff;
+  background: #db4141;
+  font-size: 20px;
+  cursor: pointer;
+  border-radius: 25px;
+  padding: 15px;
+  position: fixed;
+  bottom: 10px;
+  left: 10px;
+}
+
+.popup {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100vh;
+  z-index: 10;
+  background: rgba(0,0,0,0.6);
+  justify-content: center;
+  align-items: center;
+}
+.popup > div {
+  background: #ffffff;
+  border-radius: 25px;
+  z-index: 20;
+  transition: .5s;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 50%;
+  min-height: 50%;
+  padding: 15px;
+}
+
+#winnerPopup img {
+  width: 20%;
+}
+#winnerPopup h6 {
+  font-size: 25px;
+  color: #000000;
+  margin: 20px auto;
+}
+#winnerPopup h5 {
+  font-size: 28px;
+  color: #6b6c6d;
+  margin: 20px auto;
+}
+#winnerPopup button {
+  cursor: pointer;
+  padding: 15px;
+  background: #da2f2f;
+  color: #ffffff;
+  border-radius: 25px;
+  margin: 20px auto;
+  font-size: 22px;
+}
+
+#chatPopup .input {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 0;
+  width: 100%;
+}
+#chatPopup .input button {
+  padding: 10px 15px;
+  border-radius: 5px;
+  background: #60c5ec;
+  color: #ffffff;
+  font-size: 18px;
+  max-width: 100px;
+  cursor: pointer;
+}
+#chatPopup input {
+  max-width: 80%;
+  flex: 1;
+}
+#chatPopup .chats {
+  flex: 1;
+  width: 100%;
+  margin: 20px 0;
+  border-radius: 5px;
+  border: 1px solid #c1c2c3;
+  min-height: 40vh;
+}
+.chats li {
+  display: flex;
+  justify-content: flex-start;
+  padding: 5px 15px;
+}
+.chats b {
+  font-size: 18px;
+  color: #000000;
+  font-weight: 400;
+}
+.chats p {
+  font-size: 18px;
+  font-weight: 400;
+  color: #6b6c6d;
+  margin-left: 10px;
+}
+#chatPopup .close {
+  padding: 10px 25px;
+  border-radius: 25px;
+  background: #e63c53;
+  color: #ffffff;
+  font-size: 18px;
+  min-width: 100px;
+  margin: 20px 0;
+  cursor: pointer;
+}
+
+#chatBot {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 5;
+  border-radius: 50%;
+  height: 50px;
+  width: 50px;
+  background: linear-gradient(120deg, #060606, #e0e0de);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+@media screen and (max-width: 600px) {
+  .popup > div {
+    width: 80%;
+  }
+
+  .players li {
+    min-height: 40px;
+    min-width: 40px;
+  }
+  #playerInput input, #playerInput label {
+    width: 50%;
+  }
+
+  #board {
+    margin: 10px 5%;
+  }
+  #board button {
+    border-radius: 5px;
+  }
+
+  #chatPopup .input button {
+    padding: 8px 12px;
+  }
+}
+</style>
