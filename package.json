@@ -2,7 +2,7 @@
   "name": "multiplayer_game",
   "version": "1.0.0",
   "description": "",
-  "main": "game.html",
+  "main": "index.php",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
