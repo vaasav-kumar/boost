@@ -73,6 +73,10 @@
       <div id="board"></div>
     
       <button id="reset" onclick="reset()">Exit</button>
+
+      <audio id="myAudio">
+        <source src="/songs/info.mp3" type="audio/mp3">
+      </audio>
     </div>
   </body>
 </html>
@@ -102,6 +106,7 @@
   showWinner = (data) => {
     $('#winnerPopup').css('display', 'flex')
     $('#winner').text(data.val().player)
+    document.getElementById("myAudio").pause()
   }
   closeWinner = () => {
     $('#winnerPopup').css('display', 'none')
@@ -172,6 +177,7 @@
       $('#players li').eq(activeIndex).addClass('active')
 
       if (activePlayer === playerName) {
+        document.getElementById("myAudio").play()
         $('#board button').css('display', 'block')
       } else {
         $('#board button').css('display', 'none')
@@ -334,7 +340,7 @@
     myCards = []
     playerName = null
     activePlayer = null
-    location.href = '/game'
+    location.href = '/'
   }
 </script>
 
